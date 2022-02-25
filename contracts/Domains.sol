@@ -14,6 +14,9 @@ import "@openzeppelin/contracts/utils/Counters.sol";
 // We inherit the contract we imported. This means we'll have access
 // to the inherited contract's methods.
 contract Domains is ERC721URIStorage {
+
+  address payable public owner;
+
   // Magic given to us by OpenZeppelin to help us keep track of tokenIds.
   using Counters for Counters.Counter;
   Counters.Counter private _tokenIds;
@@ -23,6 +26,8 @@ contract Domains is ERC721URIStorage {
   // A "mapping" data type to store their names
   mapping(string => address) public domains;
 
+  mapping (uint => string) public names;
+
   // Checkout our new mapping! This will store values
   mapping(string => string) public records;
 
@@ -31,9 +36,10 @@ contract Domains is ERC721URIStorage {
   string svgPartTwo = '</text></svg>';
 
   // We make the contract "payable" by adding this to the constructor
-  constructor(string memory _tld) payable ERC721("Ninja Name Service", "NNS") {
+  constructor(string memory _tld) payable ERC721(".doc domains", "DOC") {
+    owner = payable(msg.sender);
     tld = _tld;
-    console.log("%s name service deployed", _tld);
+    console.log("%s domains deployed", _tld);
   }
 
   // This function will give us the price of a domain based on length
@@ -50,6 +56,8 @@ contract Domains is ERC721URIStorage {
   }
 
   function register(string calldata name) public payable {
+    if (domains[name] != address(0)) revert AlreadyRegistered();
+    if (!valid(name)) revert InvalidName(name);
     require(domains[name] == address(0));
 
     uint256 _price = price(name);
@@ -72,7 +80,7 @@ contract Domains is ERC721URIStorage {
           abi.encodePacked(
             '{"name": "',
             _name,
-            '", "description": "A domain on the Ninja name service", "image": "data:image/svg+xml;base64,',
+            '", "description": "A domain on .doc domains", "image": "data:image/svg+xml;base64,',
             Base64.encode(bytes(finalSvg)),
             '","length":"',
             strLen,
@@ -92,7 +100,20 @@ contract Domains is ERC721URIStorage {
     _setTokenURI(newRecordId, finalTokenUri);
     domains[name] = msg.sender;
 
+    names[newRecordId] = name;
+
     _tokenIds.increment();
+  }
+
+  function getAllNames() public view returns (string[] memory) {
+    console.log("Getting all names from contract");
+    string[] memory allNames = new string[](_tokenIds.current());
+    for (uint i = 0; i < _tokenIds.current(); i++) {
+      allNames[i] = names[i];
+      console.log("Name for token %d is %s", i, allNames[i]);
+    }
+
+    return allNames;
   }
 
   // This will give us the domain owners' address
@@ -102,6 +123,7 @@ contract Domains is ERC721URIStorage {
 
   function setRecord(string calldata name, string calldata record) public {
       // Check that the owner is the transaction sender
+      if (msg.sender != domains[name]) revert Unauthorized();
       require(domains[name] == msg.sender);
       records[name] = record;
   }
@@ -110,4 +132,29 @@ contract Domains is ERC721URIStorage {
       return records[name];
   }
 
+  modifier onlyOwner() {
+    require(isOwner());
+    _;
+  }
+
+  function isOwner() public view returns (bool) {
+    return msg.sender == owner;
+  }
+
+  function withdraw() public onlyOwner {
+    uint amount = address(this).balance;
+    
+    (bool success, ) = msg.sender.call{value: amount}("");
+    require(success, "Failed to withdraw Matic");
+  } 
+
+  function valid(string calldata name) public pure returns(bool) {
+    return StringUtils.strlen(name) >= 3 && StringUtils.strlen(name) <= 10;
+  }
+
+  error Unauthorized();
+  error AlreadyRegistered();
+  error InvalidName(string name);
+
 }
+
